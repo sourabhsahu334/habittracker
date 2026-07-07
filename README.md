@@ -1,97 +1,120 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# StudyLog
 
-# Getting Started
+A simple, **offline-first** daily study tracker for students (JEE/NEET, UPSC,
+boards, college, or any custom exam). Students manually log what they studied
+each day — subject, hours, questions solved — and the app visualizes their
+consistency and progress. **It provides no study content, tips, or AI
+schedules** — it only records and visualizes.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+Built with **React Native 0.86 (JSX)**, local storage on device as the source
+of truth, and **Supabase** for optional cloud backup/sync.
 
-## Step 1: Start Metro
+## Architecture
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
-
-To start the Metro dev server, run the following command from the root of your React Native project:
-
-```sh
-# Using npm
-npm start
-
-# OR using Yarn
-yarn start
+```
+index.js                → registers the app, loads url-polyfill for Supabase
+App.jsx                 → providers: SafeArea → Theme → App state → Navigation
+src/
+  navigation/           → bottom tabs (Home/Progress/Log/History/Settings) + modals
+  screens/              → one screen per major surface
+  components/           → shared UI (Card, Stepper, BarChart, Heatmap, HabitSection…)
+  state/AppContext.jsx  → single source of truth; loads data, exposes actions
+  storage/repository.js → structured records over AsyncStorage (offline-first)
+  sync/syncService.js   → last-write-wins cloud sync
+  supabase/client.js    → Supabase client (fill in URL + key)
+  services/             → notifications (reminders) + CSV export
+  utils/                → pure date + stats helpers (unit-tested)
+  theme/                → light/dark palettes + provider
+  constants/            → exam-category subject presets
+supabase/schema.sql     → run this in Supabase to enable cloud sync
 ```
 
-## Step 2: Build and run your app
+**Offline-first:** every mutation writes to local AsyncStorage first, then
+fires a best-effort background sync. The app is fully functional with zero
+internet and no Supabase project configured. Records carry `updatedAt` and a
+soft-delete `deleted` tombstone so cloud sync merges last-write-wins and never
+silently loses data.
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+## Feature coverage (v1)
 
-### Android
+| # | Feature | Status |
+|---|---------|--------|
+| 1 | Onboarding | ✅ |
+| 2 | Daily manual entry (stepper) | ✅ |
+| 3 | Multiple subjects per day | ✅ |
+| 4 | Streak counter | ✅ |
+| 5 | Calendar heatmap | ✅ |
+| 6 | Exam countdown | ✅ |
+| 7 | Subject-wise breakdown | ✅ |
+| 8 | Weekly stats | ✅ |
+| 9 | Daily goal tracking | ✅ |
+| 10 | History log (expand/collapse) | ✅ |
+| 11 | Edit & delete past entries | ✅ |
+| 12 | Weak subject flag | ✅ |
+| 13 | Reminders/notifications | ⚙️ Interface wired; install a notification lib to activate (see below) |
+| 14 | Offline-first local storage | ✅ |
+| 15 | Cloud sync (Supabase) | ✅ Add URL/key + run schema.sql |
+| 16 | Monthly progress report | ✅ |
+| 17 | Best streak record | ✅ |
+| 18 | Questions accuracy tracking | ✅ |
+| 19 | Chapter/topic logging | ✅ |
+| 20 | Missed day tracker | ✅ |
+| 21 | Custom habit tracking | ✅ |
+| 22 | Dark & light mode | ✅ |
+| 23 | Export data (CSV via share sheet) | ✅ |
+| 24 | Accountability partner | ⬜ Not yet built (needs shared read-only cloud view) |
+| 25 | Home screen widget | ⬜ Not yet built (native widget module per platform) |
+
+## Setup
 
 ```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
+npm install
+# iOS only:
+cd ios && bundle install && bundle exec pod install && cd ..
 ```
 
-### iOS
-
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+Run:
 
 ```sh
-bundle install
+npm start          # Metro
+npm run android    # or: npm run ios
 ```
 
-Then, and every time you update your native dependencies, run:
+Tests (pure logic — streaks, weekly stats, accuracy, weak-subject flags):
 
 ```sh
-bundle exec pod install
+npm test
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+## Enabling Supabase cloud sync (Feature 15, optional)
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. In the SQL editor, run [`supabase/schema.sql`](supabase/schema.sql). It
+   creates the `profiles`, `entries`, `habits`, `habit_logs` tables with Row
+   Level Security so each user only sees their own rows.
+3. Put your project URL and anon key in [`src/supabase/client.js`](src/supabase/client.js).
+4. In the app: **Settings → Cloud sync → Sign in / Sign up** (email + password).
+   Data then syncs silently in the background and on demand via **Sync now**.
+
+If you skip this, the app runs in local-only mode with no loss of functionality.
+
+## Enabling local reminders (Feature 13)
+
+The reminder scheduling interface lives in
+[`src/services/notifications.js`](src/services/notifications.js) and currently
+ships as a safe no-op so the base project builds without extra native modules.
+To activate:
 
 ```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
+yarn add @notifee/react-native
+cd ios && pod install
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+Then uncomment the `notifee` blocks in that file — no other app code changes.
+The Settings screen already calls `scheduleDailyReminder` / `cancelReminder`
+and re-arms the reminder for the next day whenever you log an entry.
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+## Not included (by design)
 
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+No Pomodoro/auto time-tracking, no study content/notes/videos, no AI
+schedules, no in-app tips, no social feed, no ads.
