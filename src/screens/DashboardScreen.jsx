@@ -39,6 +39,14 @@ export default function DashboardScreen({ navigation }) {
 
   const todayIdx = (new Date().getDay() + 6) % 7; // Mon=0
 
+  console.log("stats", stats);
+  console.log("profile", profile);
+  console.log("entries", entries);
+  console.log("goal", goal);
+  console.log("today", today);
+
+
+
   return (
     <ScrollView
       style={{ backgroundColor: theme.bg }}

@@ -57,25 +57,62 @@ export const saveSubjects = list => writeJSON(KEYS.subjects, list);
 // for sync and filtered out here.
 
 export async function getEntries() {
-  const all = await readJSON(KEYS.entries, []);
+  let all = await readJSON(KEYS.entries, []);
+  let changed = false;
+  all = all.map(e => {
+    if (!e.id || e.id === 'undefined' || e.id === 'null') {
+      changed = true;
+      return { ...e, id: newId() };
+    }
+    return e;
+  });
+  if (changed) {
+    await writeJSON(KEYS.entries, all);
+  }
   return all.filter(e => !e.deleted);
 }
 
-export const getAllEntriesRaw = () => readJSON(KEYS.entries, []);
+export async function getAllEntriesRaw() {
+  let all = await readJSON(KEYS.entries, []);
+  let changed = false;
+  all = all.map(e => {
+    if (!e.id || e.id === 'undefined' || e.id === 'null') {
+      changed = true;
+      return { ...e, id: newId() };
+    }
+    return e;
+  });
+  if (changed) {
+    await writeJSON(KEYS.entries, all);
+  }
+  return all;
+}
 
 export async function upsertEntry(entry) {
-  const all = await readJSON(KEYS.entries, []);
+  let all = await readJSON(KEYS.entries, []);
   const now = Date.now();
-  const idx = all.findIndex(e => e.id === entry.id);
+  
+  // Repair any existing entries that have missing/invalid IDs
+  let changed = false;
+  all = all.map(e => {
+    if (!e.id || e.id === 'undefined' || e.id === 'null') {
+      changed = true;
+      return { ...e, id: newId() };
+    }
+    return e;
+  });
+
+  const entryId = entry.id && entry.id !== 'undefined' && entry.id !== 'null' ? entry.id : newId();
+  const idx = all.findIndex(e => e.id === entryId);
   if (idx >= 0) {
-    all[idx] = { ...all[idx], ...entry, updatedAt: now };
+    all[idx] = { ...all[idx], ...entry, id: entryId, updatedAt: now };
   } else {
     all.push({
-      id: entry.id || newId(),
+      ...entry,
+      id: entryId,
       deleted: false,
       createdAt: now,
       updatedAt: now,
-      ...entry,
     });
   }
   await writeJSON(KEYS.entries, all);

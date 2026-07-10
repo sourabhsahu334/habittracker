@@ -67,12 +67,24 @@ export default function EntryScreen({ navigation, route }) {
   const canSave = cards.every(c => c.subject && c.hours >= 0);
 
   const save = async () => {
+    console.log("cards", cards, editEntry);
+
+
     for (const c of cards) {
       if (!c.subject) continue;
-      const correctNum =
-        c.correct === '' || c.correct == null ? null : Number(c.correct);
+      const correctNum = c.correct === '' || c.correct == null ? null : Number(c.correct);
+      const generatedId = newId();
+      console.log("entry", {
+        id: generatedId,
+        dateKey: editEntry ? editEntry.dateKey : targetDate,
+        subject: c.subject,
+        hours: Number(c.hours) || 0,
+        questions: Number(c.questions) || 0,
+        correct: correctNum,
+        chapter: c.chapter.trim() || null,
+      });
       await saveEntry({
-        id: editEntry ? editEntry.id : undefined,
+        id: generatedId,
         dateKey: editEntry ? editEntry.dateKey : targetDate,
         subject: c.subject,
         hours: Number(c.hours) || 0,
