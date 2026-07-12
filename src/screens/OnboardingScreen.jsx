@@ -8,6 +8,8 @@ import {
   Text,
   TextInput,
   View,
+  Modal,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
@@ -15,6 +17,7 @@ import { useApp } from '../state/AppContext';
 import { Button, Stepper } from '../components/ui';
 import { EXAM_CATEGORIES, presetSubjects } from '../constants/examPresets';
 import { dayKey } from '../utils/date';
+import { supabase, isSupabaseConfigured } from '../supabase/client';
 
 // One-minute onboarding (Feature 1). Three light steps: identity, subjects,
 // goal. Sensible defaults everywhere so the user can breeze through.
@@ -22,7 +25,7 @@ import { dayKey } from '../utils/date';
 export default function OnboardingScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
-  const { completeOnboarding } = useApp();
+  const { completeOnboarding, backgroundSync } = useApp();
 
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
@@ -31,6 +34,108 @@ export default function OnboardingScreen() {
   const [subjects, setSubjects] = useState(presetSubjects('jee_neet'));
   const [newSubject, setNewSubject] = useState('');
   const [goal, setGoal] = useState(4);
+
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState('signin');
+  const [signupStep, setSignupStep] = useState(0);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
+
+  const handleSignIn = async () => {
+    if (!email.trim() || !password) {
+      Alert.alert('Error', 'Please enter email and password');
+      return;
+    }
+    setAuthBusy(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+    if (error) {
+      Alert.alert('Sign in failed', error.message);
+      setAuthBusy(false);
+      return;
+    }
+    const syncRes = await backgroundSync();
+    setAuthBusy(false);
+    if (syncRes.ok) {
+      setShowAuthModal(false);
+    } else {
+      Alert.alert(
+        'Sync issue',
+        'Signed in successfully, but background sync encountered an error: ' +
+          (syncRes.reason || 'unknown'),
+      );
+    }
+  };
+
+  const handleSendOTP = async () => {
+    if (!email.trim()) {
+      Alert.alert('Error', 'Please enter your email');
+      return;
+    }
+    setAuthBusy(true);
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { shouldCreateUser: true }
+    });
+    setAuthBusy(false);
+    if (error) {
+      Alert.alert('Error sending OTP', error.message);
+    } else {
+      Alert.alert('OTP Sent', 'Check your email inbox for a 6-digit verification code.');
+      setSignupStep(1);
+    }
+  };
+
+  const handleVerifyOTP = async () => {
+    if (!otpCode.trim()) {
+      Alert.alert('Error', 'Please enter the 6-digit verification code');
+      return;
+    }
+    setAuthBusy(true);
+    const { error } = await supabase.auth.verifyOtp({
+      email: email.trim(),
+      token: otpCode.trim(),
+      type: 'email'
+    });
+    setAuthBusy(false);
+    if (error) {
+      Alert.alert('Verification failed', error.message);
+    } else {
+      setSignupStep(2);
+    }
+  };
+
+  const handleSetPassword = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters');
+      return;
+    }
+    setAuthBusy(true);
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword.trim()
+    });
+    if (error) {
+      Alert.alert('Failed to set password', error.message);
+      setAuthBusy(false);
+      return;
+    }
+    const syncRes = await backgroundSync();
+    setAuthBusy(false);
+    if (syncRes.ok) {
+      setShowAuthModal(false);
+    } else {
+      Alert.alert(
+        'Sync issue',
+        'Account verified and password set, but background sync failed: ' +
+          (syncRes.reason || 'unknown'),
+      );
+    }
+  };
 
   const pickCategory = id => {
     setCategory(id);
@@ -74,7 +179,24 @@ export default function OnboardingScreen() {
           { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 },
         ]}
         keyboardShouldPersistTaps="handled">
-        <Text style={[styles.brand, { color: theme.primary }]}>StudyLog</Text>
+        <View style={styles.headerRow}>
+          <Text style={[styles.brand, { color: theme.primary }]}>StudyLog</Text>
+          {isSupabaseConfigured && (
+            <Pressable
+              onPress={() => {
+                setEmail('');
+                setPassword('');
+                setAuthBusy(false);
+                setShowAuthModal(true);
+              }}
+              style={({ pressed }) => [
+                styles.signInBtn,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}>
+              <Text style={[styles.signInBtnText, { color: theme.primary }]}>Sign In</Text>
+            </Pressable>
+          )}
+        </View>
         <View style={styles.dots}>
           {[0, 1, 2].map(i => (
             <View
@@ -210,6 +332,184 @@ export default function OnboardingScreen() {
           </View>
         )}
       </ScrollView>
+      <Modal
+        visible={showAuthModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!authBusy) setShowAuthModal(false);
+        }}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text, marginBottom: 8 }]}>
+              {authMode === 'signin' ? 'Sign In' : 'Sign Up'}
+            </Text>
+
+            {/* Tab selector */}
+            <View style={styles.segment}>
+              <Pressable
+                onPress={() => { setAuthMode('signin'); setSignupStep(0); }}
+                style={[
+                  styles.segItem,
+                  { backgroundColor: authMode === 'signin' ? theme.primary : theme.cardAlt }
+                ]}>
+                <Text style={{ color: authMode === 'signin' ? '#fff' : theme.text, fontWeight: '600' }}>
+                  Sign In
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => { setAuthMode('signup'); setSignupStep(0); }}
+                style={[
+                  styles.segItem,
+                  { backgroundColor: authMode === 'signup' ? theme.primary : theme.cardAlt }
+                ]}>
+                <Text style={{ color: authMode === 'signup' ? '#fff' : theme.text, fontWeight: '600' }}>
+                  Sign Up
+                </Text>
+              </Pressable>
+            </View>
+
+            {authMode === 'signin' ? (
+              <View style={{ marginTop: 12 }}>
+                <Text style={[styles.label, { color: theme.textMuted }]}>Email</Text>
+                <TextInput
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="email@example.com"
+                  placeholderTextColor={theme.textFaint}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  style={[styles.input, input]}
+                  editable={!authBusy}
+                />
+
+                <Text style={[styles.label, { color: theme.textMuted, marginTop: 12 }]}>Password</Text>
+                <TextInput
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="••••••••"
+                  placeholderTextColor={theme.textFaint}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  style={[styles.input, input]}
+                  editable={!authBusy}
+                />
+
+                <View style={styles.modalButtons}>
+                  <Button
+                    title="Cancel"
+                    variant="outline"
+                    onPress={() => setShowAuthModal(false)}
+                    disabled={authBusy}
+                    style={{ flex: 1, marginRight: 8 }}
+                  />
+                  <Button
+                    title={authBusy ? 'Please wait...' : 'Sign In'}
+                    onPress={handleSignIn}
+                    disabled={authBusy}
+                    style={{ flex: 1 }}
+                  />
+                </View>
+              </View>
+            ) : (
+              <View style={{ marginTop: 12 }}>
+                {signupStep === 0 && (
+                  <View>
+                    <Text style={[styles.label, { color: theme.textMuted }]}>Email</Text>
+                    <TextInput
+                      value={email}
+                      onChangeText={setEmail}
+                      placeholder="email@example.com"
+                      placeholderTextColor={theme.textFaint}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      style={[styles.input, input]}
+                      editable={!authBusy}
+                    />
+
+                    <View style={styles.modalButtons}>
+                      <Button
+                        title="Cancel"
+                        variant="outline"
+                        onPress={() => setShowAuthModal(false)}
+                        disabled={authBusy}
+                        style={{ flex: 1, marginRight: 8 }}
+                      />
+                      <Button
+                        title={authBusy ? 'Sending OTP…' : 'Send OTP'}
+                        onPress={handleSendOTP}
+                        disabled={authBusy}
+                        style={{ flex: 1 }}
+                      />
+                    </View>
+                  </View>
+                )}
+
+                {signupStep === 1 && (
+                  <View>
+                    <Text style={[styles.sub, { color: theme.textMuted, fontSize: 13, marginBottom: 8, lineHeight: 18 }]}>
+                      Enter the 6-digit OTP code sent to {email}.
+                    </Text>
+                    <Text style={[styles.label, { color: theme.textMuted }]}>Verification Code</Text>
+                    <TextInput
+                      value={otpCode}
+                      onChangeText={setOtpCode}
+                      placeholder="6-digit code"
+                      placeholderTextColor={theme.textFaint}
+                      keyboardType="numeric"
+                      style={[styles.input, input]}
+                      editable={!authBusy}
+                    />
+
+                    <View style={styles.modalButtons}>
+                      <Button
+                        title="Back"
+                        variant="outline"
+                        onPress={() => setSignupStep(0)}
+                        disabled={authBusy}
+                        style={{ flex: 1, marginRight: 8 }}
+                      />
+                      <Button
+                        title={authBusy ? 'Verifying…' : 'Verify OTP'}
+                        onPress={handleVerifyOTP}
+                        disabled={authBusy}
+                        style={{ flex: 1 }}
+                      />
+                    </View>
+                  </View>
+                )}
+
+                {signupStep === 2 && (
+                  <View>
+                    <Text style={[styles.sub, { color: theme.textMuted, fontSize: 13, marginBottom: 8, lineHeight: 18 }]}>
+                      Email verified! Set a password for password-based logins.
+                    </Text>
+                    <Text style={[styles.label, { color: theme.textMuted }]}>Choose Password</Text>
+                    <TextInput
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      placeholder="min 6 characters"
+                      placeholderTextColor={theme.textFaint}
+                      secureTextEntry
+                      style={[styles.input, input]}
+                      editable={!authBusy}
+                    />
+
+                    <View style={styles.modalButtons}>
+                      <Button
+                        title={authBusy ? 'Completing…' : 'Complete Signup'}
+                        onPress={handleSetPassword}
+                        disabled={authBusy}
+                        style={{ flex: 1 }}
+                      />
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -226,7 +526,21 @@ function defaultExamDate() {
 
 const styles = StyleSheet.create({
   container: { paddingHorizontal: 20 },
-  brand: { fontSize: 20, fontWeight: '800', textAlign: 'center' },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  brand: { fontSize: 20, fontWeight: '800' },
+  signInBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  signInBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
   dots: { flexDirection: 'row', justifyContent: 'center', marginVertical: 18, gap: 8 },
   dot: { width: 26, height: 6, borderRadius: 3 },
   h1: { fontSize: 28, fontWeight: '800', marginBottom: 6 },
@@ -247,4 +561,49 @@ const styles = StyleSheet.create({
   addRow: { flexDirection: 'row', alignItems: 'center' },
   navRow: { flexDirection: 'row', marginTop: 26 },
   goalBox: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 24, marginTop: 8 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 24,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  modalSub: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    marginTop: 24,
+  },
+  segment: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  segItem: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
 });

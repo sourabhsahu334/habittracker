@@ -176,7 +176,7 @@ export default function EntryScreen({ navigation, route }) {
                   label="Questions solved"
                   value={c.questions}
                   onChange={v => patch(c.key, 'questions', v)}
-                  step={5}
+                  step={1}
                   min={0}
                 />
               </View>

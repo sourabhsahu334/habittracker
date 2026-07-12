@@ -21,7 +21,8 @@ create table if not exists public.profiles (
   "reminderTime" text,
   "reminderEnabled" boolean,
   "onboardedAt" bigint,
-  "updatedAt" bigint
+  "updatedAt" bigint,
+  "subjects" jsonb
 );
 
 -- ---------------------------------------------------------------------------

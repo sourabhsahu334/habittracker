@@ -1,10 +1,10 @@
 import React, { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
 import { useApp } from '../state/AppContext';
 import { BarChart, Button, Card, EmptyState, ProgressBar } from '../components/ui';
-import { dayKey, daysUntil, WEEKDAY_LABELS } from '../utils/date';
+import { dayKey, daysUntil, WEEKDAY_LABELS, addDays, parseDayKey } from '../utils/date';
 import {
   bestStreak,
   currentStreak,
@@ -19,7 +19,7 @@ import {
 export default function DashboardScreen({ navigation }) {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
-  const { profile, entries } = useApp();
+  const { profile, entries, habits, habitLogs, logHabit } = useApp();
 
   const today = dayKey();
   const stats = useMemo(() => {
@@ -31,6 +31,12 @@ export default function DashboardScreen({ navigation }) {
       week: weekStats(entries),
     };
   }, [entries, today]);
+
+  const last7 = useMemo(() => {
+    return Array.from({ length: 7 }, (_, i) =>
+      dayKey(addDays(parseDayKey(today), -(6 - i))),
+    );
+  }, [today]);
 
   const goal = profile?.dailyGoalHours || 0;
   const goalHit = goal > 0 && stats.todayHours >= goal;
@@ -109,6 +115,109 @@ export default function DashboardScreen({ navigation }) {
         />
       </Card>
 
+      {/* Daily Habits (Feature 21) */}
+      <Card>
+        <View style={styles.habitCardHeader}>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>Daily Habits</Text>
+          <Pressable onPress={() => navigation.navigate('Progress')}>
+            <Text style={[styles.linkText, { color: theme.primary }]}>Manage →</Text>
+          </Pressable>
+        </View>
+
+        {habits.length === 0 ? (
+          <View style={styles.emptyHabitsContainer}>
+            <Text style={[styles.emptyHabitsText, { color: theme.textMuted }]}>
+              Track routine habits like sleep, revision or mock tests.
+            </Text>
+            <Button
+              title="Add a habit"
+              variant="outline"
+              onPress={() => navigation.navigate('Progress')}
+              style={{ marginTop: 4 }}
+            />
+          </View>
+        ) : (
+          habits.map(h => {
+            const todayLog = habitLogs.find(l => l.habitId === h.id && l.dateKey === today);
+            const value = todayLog?.value || 0;
+            const completedToday = value > 0;
+
+            return (
+              <View key={h.id} style={[styles.habitRow, { borderBottomColor: theme.border }]}>
+                <View style={styles.habitRowLeft}>
+                  <Text style={[styles.habitName, { color: theme.text }]} numberOfLines={1}>
+                    {h.name}
+                  </Text>
+                  
+                  {/* Past 7 days micro-grid */}
+                  <View style={styles.microGrid}>
+                    {last7.map(dKey => {
+                      const log = habitLogs.find(l => l.habitId === h.id && l.dateKey === dKey);
+                      const done = log && Number(log.value) > 0;
+                      const isToday = dKey === today;
+                      
+                      return (
+                        <View
+                          key={dKey}
+                          style={[
+                            styles.microDot,
+                            {
+                              backgroundColor: done ? theme.accent : theme.cardAlt,
+                              borderColor: isToday ? theme.primary : 'transparent',
+                              borderWidth: isToday ? 1 : 0,
+                            },
+                          ]}
+                        />
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={styles.habitRowRight}>
+                  {h.type === 'bool' ? (
+                    <Pressable
+                      onPress={() => logHabit(h.id, today, completedToday ? 0 : 1)}
+                      style={[
+                        styles.boolToggle,
+                        {
+                          backgroundColor: completedToday ? theme.accent : theme.cardAlt,
+                          borderColor: completedToday ? theme.accent : theme.border,
+                        },
+                      ]}>
+                      <Text style={[styles.boolToggleText, { color: completedToday ? '#fff' : theme.textMuted }]}>
+                        {completedToday ? '✓ Done' : 'Mark Done'}
+                      </Text>
+                    </Pressable>
+                  ) : (
+                    <View style={styles.numStepper}>
+                      <Pressable
+                        onPress={() => logHabit(h.id, today, Math.max(0, value - 1))}
+                        style={({ pressed }) => [
+                          styles.stepperButton,
+                          { backgroundColor: theme.primarySoft, opacity: pressed ? 0.7 : 1 },
+                        ]}>
+                        <Text style={[styles.stepperButtonText, { color: theme.primary }]}>–</Text>
+                      </Pressable>
+                      <Text style={[styles.stepperValue, { color: theme.text }]}>
+                        {value}
+                      </Text>
+                      <Pressable
+                        onPress={() => logHabit(h.id, today, value + 1)}
+                        style={({ pressed }) => [
+                          styles.stepperButton,
+                          { backgroundColor: theme.primarySoft, opacity: pressed ? 0.7 : 1 },
+                        ]}>
+                        <Text style={[styles.stepperButtonText, { color: theme.primary }]}>+</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              </View>
+            );
+          })
+        )}
+      </Card>
+
       {/* Weekly stats (Feature 8) */}
       <Card>
         <Text style={[styles.cardTitle, { color: theme.text, marginBottom: 4 }]}>This week</Text>
@@ -167,4 +276,20 @@ const styles = StyleSheet.create({
   goalHours: { fontSize: 30, fontWeight: '900', marginBottom: 10 },
   weekTotals: { flexDirection: 'row', gap: 40, marginBottom: 14, marginTop: 6 },
   weekNum: { fontSize: 26, fontWeight: '900' },
+  habitCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  linkText: { fontSize: 14, fontWeight: '600' },
+  emptyHabitsContainer: { alignItems: 'center', paddingVertical: 12 },
+  emptyHabitsText: { fontSize: 14, textAlign: 'center', marginBottom: 8, lineHeight: 20 },
+  habitRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  habitRowLeft: { flex: 1, marginRight: 12 },
+  habitName: { fontSize: 15, fontWeight: '600', marginBottom: 6 },
+  microGrid: { flexDirection: 'row', gap: 5 },
+  microDot: { width: 10, height: 10, borderRadius: 5 },
+  habitRowRight: { flexDirection: 'row', alignItems: 'center' },
+  boolToggle: { paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, minWidth: 85, alignItems: 'center' },
+  boolToggleText: { fontSize: 13, fontWeight: '700' },
+  numStepper: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  stepperButton: { width: 28, height: 28, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
+  stepperButtonText: { fontSize: 16, fontWeight: '700' },
+  stepperValue: { fontSize: 15, fontWeight: '700', minWidth: 20, textAlign: 'center' },
 });

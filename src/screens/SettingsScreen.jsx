@@ -226,8 +226,12 @@ export default function SettingsScreen() {
 // Auth + manual sync. Local-only mode when Supabase isn't configured.
 function CloudSyncCard({ theme, meta, syncing, onSync }) {
   const [session, setSession] = useState(null);
+  const [authMode, setAuthMode] = useState('signin'); // 'signin' | 'signup'
+  const [signupStep, setSignupStep] = useState(0); // 0: email, 1: OTP, 2: password
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -250,15 +254,76 @@ function CloudSyncCard({ theme, meta, syncing, onSync }) {
     );
   }
 
-  const signIn = async () => {
+  const handleSignIn = async () => {
+    if (!email.trim() || !password) {
+      Alert.alert('Error', 'Please enter email and password');
+      return;
+    }
     setBusy(true);
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     if (error) {
-      const { error: upErr } = await supabase.auth.signUp({ email: email.trim(), password });
-      if (upErr) Alert.alert('Sign in failed', upErr.message);
+      Alert.alert('Sign in failed', error.message);
+      setBusy(false);
+      return;
     }
     setBusy(false);
     onSync();
+  };
+
+  const handleSendOTP = async () => {
+    if (!email.trim()) {
+      Alert.alert('Error', 'Please enter your email');
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { shouldCreateUser: true }
+    });
+    setBusy(false);
+    if (error) {
+      Alert.alert('Error sending OTP', error.message);
+    } else {
+      Alert.alert('OTP Sent', 'Check your email inbox for a 6-digit verification code.');
+      setSignupStep(1);
+    }
+  };
+
+  const handleVerifyOTP = async () => {
+    if (!otpCode.trim()) {
+      Alert.alert('Error', 'Please enter the 6-digit verification code');
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase.auth.verifyOtp({
+      email: email.trim(),
+      token: otpCode.trim(),
+      type: 'email'
+    });
+    setBusy(false);
+    if (error) {
+      Alert.alert('Verification failed', error.message);
+    } else {
+      setSignupStep(2);
+    }
+  };
+
+  const handleSetPassword = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters');
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword.trim()
+    });
+    setBusy(false);
+    if (error) {
+      Alert.alert('Failed to set password', error.message);
+    } else {
+      Alert.alert('Success', 'Account created and password set successfully!');
+      onSync();
+    }
   };
 
   const signOut = async () => {
@@ -268,7 +333,7 @@ function CloudSyncCard({ theme, meta, syncing, onSync }) {
 
   return (
     <Card>
-      <Text style={[styles.cardTitle, { color: theme.text }]}>Cloud sync</Text>
+      <Text style={[styles.cardTitle, { color: theme.text, marginBottom: 8 }]}>Cloud sync</Text>
       {session ? (
         <View>
           <Text style={[styles.hint, { color: theme.textMuted }]}>
@@ -282,27 +347,112 @@ function CloudSyncCard({ theme, meta, syncing, onSync }) {
         </View>
       ) : (
         <View>
-          <Text style={[styles.hint, { color: theme.textMuted }]}>
-            Sign in to back up and sync across devices.
-          </Text>
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            placeholder="Email"
-            placeholderTextColor={theme.textFaint}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            style={[styles.input, input]}
-          />
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Password"
-            placeholderTextColor={theme.textFaint}
-            secureTextEntry
-            style={[styles.input, input, { marginTop: 8 }]}
-          />
-          <Button title={busy ? 'Please wait…' : 'Sign in / Sign up'} onPress={signIn} disabled={busy} style={{ marginTop: 10 }} />
+          {/* Tab selector */}
+          <View style={styles.segment}>
+            <Pressable
+              onPress={() => { setAuthMode('signin'); setSignupStep(0); }}
+              style={[
+                styles.segItem,
+                { backgroundColor: authMode === 'signin' ? theme.primary : theme.cardAlt }
+              ]}>
+              <Text style={{ color: authMode === 'signin' ? '#fff' : theme.text, fontWeight: '600' }}>
+                Sign In
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => { setAuthMode('signup'); setSignupStep(0); }}
+              style={[
+                styles.segItem,
+                { backgroundColor: authMode === 'signup' ? theme.primary : theme.cardAlt }
+              ]}>
+              <Text style={{ color: authMode === 'signup' ? '#fff' : theme.text, fontWeight: '600' }}>
+                Sign Up
+              </Text>
+            </Pressable>
+          </View>
+
+          {authMode === 'signin' ? (
+            <View style={{ marginTop: 12 }}>
+              <Text style={[styles.hint, { color: theme.textMuted, marginBottom: 8 }]}>
+                Sign in with email and password.
+              </Text>
+              <TextInput
+                value={email}
+                onChangeText={setEmail}
+                placeholder="Email"
+                placeholderTextColor={theme.textFaint}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                style={[styles.input, input]}
+              />
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Password"
+                placeholderTextColor={theme.textFaint}
+                secureTextEntry
+                style={[styles.input, input, { marginTop: 8 }]}
+              />
+              <Button title={busy ? 'Please wait…' : 'Sign In'} onPress={handleSignIn} disabled={busy} style={{ marginTop: 10 }} />
+            </View>
+          ) : (
+            <View style={{ marginTop: 12 }}>
+              {signupStep === 0 && (
+                <View>
+                  <Text style={[styles.hint, { color: theme.textMuted, marginBottom: 8 }]}>
+                    Enter email to receive a verification OTP.
+                  </Text>
+                  <TextInput
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="Email"
+                    placeholderTextColor={theme.textFaint}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    style={[styles.input, input]}
+                  />
+                  <Button title={busy ? 'Sending OTP…' : 'Send OTP'} onPress={handleSendOTP} disabled={busy} style={{ marginTop: 10 }} />
+                </View>
+              )}
+
+              {signupStep === 1 && (
+                <View>
+                  <Text style={[styles.hint, { color: theme.textMuted, marginBottom: 8, lineHeight: 18 }]}>
+                    Enter the 6-digit OTP code sent to {email}.
+                  </Text>
+                  <TextInput
+                    value={otpCode}
+                    onChangeText={setOtpCode}
+                    placeholder="Verification Code"
+                    placeholderTextColor={theme.textFaint}
+                    keyboardType="numeric"
+                    style={[styles.input, input]}
+                  />
+                  <Button title={busy ? 'Verifying…' : 'Verify OTP'} onPress={handleVerifyOTP} disabled={busy} style={{ marginTop: 10 }} />
+                  <Pressable onPress={() => setSignupStep(0)} style={{ marginTop: 10, alignItems: 'center' }}>
+                    <Text style={{ color: theme.primary, fontSize: 13, fontWeight: '600' }}>Change email</Text>
+                  </Pressable>
+                </View>
+              )}
+
+              {signupStep === 2 && (
+                <View>
+                  <Text style={[styles.hint, { color: theme.textMuted, marginBottom: 8, lineHeight: 18 }]}>
+                    Email verified! Set a password for password-based logins.
+                  </Text>
+                  <TextInput
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="New Password (min 6 chars)"
+                    placeholderTextColor={theme.textFaint}
+                    secureTextEntry
+                    style={[styles.input, input]}
+                  />
+                  <Button title={busy ? 'Setting password…' : 'Complete Signup'} onPress={handleSetPassword} disabled={busy} style={{ marginTop: 10 }} />
+                </View>
+              )}
+            </View>
+          )}
         </View>
       )}
     </Card>

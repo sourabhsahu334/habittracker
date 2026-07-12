@@ -21,6 +21,8 @@ import {
   saveProfile,
   getMeta,
   saveMeta,
+  getSubjects,
+  saveSubjects,
 } from '../storage/repository';
 
 // Merge two record arrays by id, keeping the one with the newer updatedAt.
@@ -46,24 +48,32 @@ export async function getSession() {
 async function syncTable({ table, userId, loadLocal, saveLocal }) {
   const local = await loadLocal();
 
-  // Push local rows (upsert). Supabase table has a composite/primary key on id.
-  if (local.length > 0) {
-    const rows = local.map(r => ({ ...r, user_id: userId }));
-    const { error } = await supabase.from(table).upsert(rows, { onConflict: 'id' });
-    if (error) throw error;
+  try {
+    // Push local rows (upsert). Supabase table has a composite/primary key on id.
+    if (local.length > 0) {
+      const rows = local.map(r => ({ ...r, user_id: userId }));
+      const { error } = await supabase.from(table).upsert(rows, { onConflict: 'id' });
+      if (error) throw error;
+    }
+
+    // Pull all remote rows for this user.
+    const { data: remote, error: pullErr } = await supabase
+      .from(table)
+      .select('*')
+      .eq('user_id', userId);
+    if (pullErr) throw pullErr;
+
+    const cleaned = (remote || []).map(({ user_id, ...rest }) => rest);
+    const merged = mergeById(local, cleaned);
+    await saveLocal(merged);
+    return merged;
+  } catch (err) {
+    if (err.code === '42P01' || String(err.message || '').includes('does not exist')) {
+      console.warn(`Table "${table}" does not exist in Supabase database. Skipping sync.`);
+      return local;
+    }
+    throw err;
   }
-
-  // Pull all remote rows for this user.
-  const { data: remote, error: pullErr } = await supabase
-    .from(table)
-    .select('*')
-    .eq('user_id', userId);
-  if (pullErr) throw pullErr;
-
-  const cleaned = (remote || []).map(({ user_id, ...rest }) => rest);
-  const merged = mergeById(local, cleaned);
-  await saveLocal(merged);
-  return merged;
 }
 
 // Full sync of every collection. Returns { ok, reason?, syncedAt? }.
@@ -96,13 +106,13 @@ export async function runSync() {
       loadLocal: getHabitLogs,
       saveLocal: saveAllHabitLogsRaw,
     });
-
     // Profile is a single row keyed by user id.
     const profile = await getProfile();
     if (profile) {
+      const subjects = await getSubjects();
       const { error } = await supabase
         .from('profiles')
-        .upsert({ ...profile, id: userId, user_id: userId }, { onConflict: 'id' });
+        .upsert({ ...profile, subjects, id: userId, user_id: userId }, { onConflict: 'id' });
       if (error) throw error;
     }
     const { data: remoteProfile } = await supabase
@@ -118,6 +128,9 @@ export async function runSync() {
       ) {
         const { id, user_id, ...rest } = remoteProfile;
         await saveProfile(rest);
+        if (rest.subjects) {
+          await saveSubjects(rest.subjects);
+        }
       }
     }
 
