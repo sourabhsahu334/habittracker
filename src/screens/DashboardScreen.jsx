@@ -62,6 +62,7 @@ export default function DashboardScreen({ navigation }) {
       </Text>
 
       {/* Exam countdown (Feature 6) */}
+      {profile?.examDate &&
       <Card style={{ backgroundColor: theme.primary, borderColor: theme.primary }}>
         {examOver ? (
           <View>
@@ -72,12 +73,13 @@ export default function DashboardScreen({ navigation }) {
           <View style={styles.countRow}>
             <View>
               <Text style={styles.countLabelLight}>Days until exam</Text>
-              <Text style={styles.countSub}>{profile?.examDate}</Text>
+                  <Text style={styles.countSub}>{profile?.examDate || 'Not Declared'}</Text>
             </View>
             <Text style={styles.countNumber}>{daysLeft ?? '—'}</Text>
           </View>
         )}
       </Card>
+      }
 
       {/* Streaks (Features 4 & 17) */}
       <View style={styles.row}>

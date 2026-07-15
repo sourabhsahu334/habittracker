@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -14,7 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
 import { useApp } from '../state/AppContext';
-import { Button, Stepper } from '../components/ui';
+import { Button, Stepper, Card } from '../components/ui';
 import { EXAM_CATEGORIES, presetSubjects } from '../constants/examPresets';
 import { dayKey } from '../utils/date';
 import { supabase, isSupabaseConfigured } from '../supabase/client';
@@ -31,6 +31,7 @@ export default function OnboardingScreen() {
   const [name, setName] = useState('');
   const [category, setCategory] = useState('jee_neet');
   const [examDate, setExamDate] = useState(defaultExamDate());
+  const [notDeclared, setNotDeclared] = useState(false);
   const [subjects, setSubjects] = useState(presetSubjects('jee_neet'));
   const [newSubject, setNewSubject] = useState('');
   const [goal, setGoal] = useState(4);
@@ -43,6 +44,14 @@ export default function OnboardingScreen() {
   const [otpCode, setOtpCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
+  const [session, setSession] = useState(null);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    supabase.auth.getSession().then(({ data }) => setSession(data?.session || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => sub?.subscription?.unsubscribe();
+  }, []);
 
   const handleSignIn = async () => {
     if (!email.trim() || !password) {
@@ -154,7 +163,7 @@ export default function OnboardingScreen() {
       profile: {
         name: name.trim() || 'Student',
         examCategory: category,
-        examDate,
+        examDate: examDate.trim() || null,
         dailyGoalHours: goal,
         reminderEnabled: true,
         reminderTime: '21:00',
@@ -255,13 +264,53 @@ export default function OnboardingScreen() {
             <Label theme={theme}>Exam date (YYYY-MM-DD)</Label>
             <TextInput
               value={examDate}
-              onChangeText={setExamDate}
+              onChangeText={text => {
+                setExamDate(text);
+                if (text.trim().length > 0 && notDeclared) {
+                  setNotDeclared(false);
+                }
+              }}
               placeholder="2026-05-01"
               placeholderTextColor={theme.textFaint}
-              style={[styles.input, input]}
+              style={[styles.input, input, notDeclared && { opacity: 0.5 }]}
               autoCapitalize="none"
+              editable={!notDeclared}
             />
-            <Button title="Next" onPress={() => setStep(1)} style={{ marginTop: 20 }} />
+            <Pressable
+              onPress={() => {
+                if (notDeclared) {
+                  setNotDeclared(false);
+                  setExamDate(defaultExamDate());
+                } else {
+                  setNotDeclared(true);
+                  setExamDate('');
+                }
+              }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                marginTop: 8,
+                marginBottom: 16,
+              }}>
+              <View
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderWidth: 2,
+                  borderColor: notDeclared ? theme.primary : theme.border,
+                  borderRadius: 4,
+                  backgroundColor: notDeclared ? theme.primary : 'transparent',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginRight: 8,
+                }}>
+                {notDeclared && (
+                  <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold', marginTop: -1 }}>✓</Text>
+                )}
+              </View>
+              <Text style={{ color: theme.text, fontSize: 14 }}>Not Declared / Undecided</Text>
+            </Pressable>
+            <Button title="Next" onPress={() => setStep(1)} style={{ marginTop: 10 }} />
           </View>
         )}
 
@@ -300,21 +349,12 @@ export default function OnboardingScreen() {
               <Button title="Add" onPress={addSubject} style={{ marginLeft: 8 }} />
             </View>
 
-            <View style={styles.navRow}>
-              <Button title="Back" variant="outline" onPress={() => setStep(0)} style={{ flex: 1, marginRight: 8 }} />
-              <Button title="Next" onPress={() => setStep(2)} style={{ flex: 1 }} />
-            </View>
-          </View>
-        )}
-
-        {step === 2 && (
-          <View>
-            <Text style={[styles.h1, { color: theme.text }]}>Daily goal</Text>
-            <Text style={[styles.sub, { color: theme.textMuted }]}>
+            <Text style={[styles.h1, { color: theme.text, marginTop: 24 }]}>Daily goal</Text>
+            <Text style={[styles.sub, { color: theme.textMuted, marginBottom: 8 }]}>
               How many hours do you aim to study each day?
             </Text>
 
-            <View style={[styles.goalBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={[styles.goalBox, { backgroundColor: theme.card, borderColor: theme.border, marginBottom: 20 }]}>
               <Stepper
                 value={goal}
                 onChange={setGoal}
@@ -324,6 +364,128 @@ export default function OnboardingScreen() {
                 format={v => `${v} h / day`}
               />
             </View>
+
+
+
+            <View style={styles.navRow}>
+              <Button title="Back" variant="outline" onPress={() => setStep(0)} style={{ flex: 1, marginRight: 8 }} />
+              <Button title="Next" onPress={() => setStep(2)} style={{ flex: 1 }} />
+            </View>
+          </View>
+        )}
+
+        {step === 2 && (
+          <View>
+            <Text style={[styles.h1, { color: theme.text }]}>Cloud Backup</Text>
+            <Text style={[styles.sub, { color: theme.textMuted }]}>
+              Keep your progress synced and safe.
+            </Text>
+
+            {isSupabaseConfigured ? (
+              <Card style={{ marginTop: 8, marginBottom: 12 }}>
+                <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>
+                  Cloud Backup (Optional)
+                </Text>
+                {session ? (
+                  <View style={{ paddingVertical: 8 }}>
+                    <Text style={{ color: theme.text, fontSize: 14 }}>
+                      ✓ Signed in as <Text style={{ fontWeight: '600' }}>{session.user.email}</Text>
+                    </Text>
+                  </View>
+                ) : (
+                  <View>
+                    {signupStep === 0 && (
+                      <View>
+                        <Text style={{ color: theme.textMuted, fontSize: 13, marginBottom: 8 }}>
+                          Sign up to sync your data across devices.
+                        </Text>
+                        <TextInput
+                          value={email}
+                          onChangeText={setEmail}
+                          placeholder="Email"
+                          placeholderTextColor={theme.textFaint}
+                          autoCapitalize="none"
+                          keyboardType="email-address"
+                          style={[styles.input, input]}
+                          editable={!authBusy}
+                        />
+                        <Button
+                          title={authBusy ? 'Sending OTP…' : 'Send OTP'}
+                          onPress={handleSendOTP}
+                          disabled={authBusy}
+                          style={{ marginTop: 10 }}
+                        />
+                      </View>
+                    )}
+
+                    {signupStep === 1 && (
+                      <View>
+                        <Text style={{ color: theme.textMuted, fontSize: 13, marginBottom: 8, lineHeight: 18 }}>
+                          Enter the 6-digit OTP code sent to {email}.
+                        </Text>
+                        <TextInput
+                          value={otpCode}
+                          onChangeText={setOtpCode}
+                          placeholder="6-digit code"
+                          placeholderTextColor={theme.textFaint}
+                          keyboardType="numeric"
+                          style={[styles.input, input]}
+                          editable={!authBusy}
+                        />
+                        <View style={{ flexDirection: 'row', marginTop: 10, gap: 8 }}>
+                          <Button
+                            title="Back"
+                            variant="outline"
+                            onPress={() => setSignupStep(0)}
+                            disabled={authBusy}
+                            style={{ flex: 1 }}
+                          />
+                          <Button
+                            title={authBusy ? 'Verifying…' : 'Verify OTP'}
+                            onPress={handleVerifyOTP}
+                            disabled={authBusy}
+                            style={{ flex: 2 }}
+                          />
+                        </View>
+                      </View>
+                    )}
+
+                    {signupStep === 2 && (
+                      <View>
+                        <Text style={{ color: theme.textMuted, fontSize: 13, marginBottom: 8, lineHeight: 18 }}>
+                          Email verified! Set a password to complete signup.
+                        </Text>
+                        <TextInput
+                          value={newPassword}
+                          onChangeText={setNewPassword}
+                          placeholder="New Password (min 6 chars)"
+                          placeholderTextColor={theme.textFaint}
+                          secureTextEntry
+                          autoCapitalize="none"
+                          style={[styles.input, input]}
+                          editable={!authBusy}
+                        />
+                        <Button
+                          title={authBusy ? 'Completing…' : 'Complete Signup'}
+                          onPress={handleSetPassword}
+                          disabled={authBusy}
+                          style={{ marginTop: 10 }}
+                        />
+                      </View>
+                    )}
+                  </View>
+                )}
+              </Card>
+            ) : (
+              <Card style={{ marginTop: 8, marginBottom: 12 }}>
+                <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>
+                  Cloud Backup (Offline Mode)
+                </Text>
+                <Text style={{ color: theme.textMuted, fontSize: 14, lineHeight: 20 }}>
+                  Running in offline-first mode. Setup Supabase details to enable database synchronization. Your data will be saved locally on this device.
+                </Text>
+              </Card>
+            )}
 
             <View style={styles.navRow}>
               <Button title="Back" variant="outline" onPress={() => setStep(1)} style={{ flex: 1, marginRight: 8 }} />

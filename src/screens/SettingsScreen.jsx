@@ -139,17 +139,17 @@ export default function SettingsScreen() {
 
       {/* Exam date (F1/F6) */}
       <Card>
-        <Text style={[styles.cardTitle, { color: theme.text }]}>Exam date</Text>
+        <Text style={[styles.cardTitle, { color: theme.text }]}>Exam date (optional)</Text>
         <View style={styles.inlineRow}>
           <TextInput
             value={examDate}
             onChangeText={setExamDate}
-            placeholder="YYYY-MM-DD"
+            placeholder="YYYY-MM-DD (or blank)"
             placeholderTextColor={theme.textFaint}
             autoCapitalize="none"
             style={[styles.input, input, { flex: 1 }]}
           />
-          <Button title="Save" onPress={() => updateProfile({ examDate })} style={{ marginLeft: 8 }} />
+          <Button title="Save" onPress={() => updateProfile({ examDate: examDate.trim() || null })} style={{ marginLeft: 8 }} />
         </View>
       </Card>
 
@@ -242,6 +242,7 @@ function CloudSyncCard({ theme, meta, syncing, onSync }) {
   }, []);
 
   const input = { backgroundColor: theme.cardAlt, borderColor: theme.border, color: theme.text };
+  const showSignedIn = session && !(authMode === 'signup' && signupStep === 2);
 
   if (!isSupabaseConfigured) {
     return (
@@ -322,6 +323,8 @@ function CloudSyncCard({ theme, meta, syncing, onSync }) {
       Alert.alert('Failed to set password', error.message);
     } else {
       Alert.alert('Success', 'Account created and password set successfully!');
+      setAuthMode('signin');
+      setSignupStep(0);
       onSync();
     }
   };
@@ -334,7 +337,7 @@ function CloudSyncCard({ theme, meta, syncing, onSync }) {
   return (
     <Card>
       <Text style={[styles.cardTitle, { color: theme.text, marginBottom: 8 }]}>Cloud sync</Text>
-      {session ? (
+      {showSignedIn ? (
         <View>
           <Text style={[styles.hint, { color: theme.textMuted }]}>
             Signed in as {session.user.email}
