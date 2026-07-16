@@ -135,6 +135,8 @@ export default function OnboardingScreen() {
     }
     const syncRes = await backgroundSync();
     setAuthBusy(false);
+    setSignupStep(0);
+    setAuthMode('signin');
     if (syncRes.ok) {
       setShowAuthModal(false);
     } else {
@@ -386,7 +388,7 @@ export default function OnboardingScreen() {
                 <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700', marginBottom: 8 }}>
                   Cloud Backup (Optional)
                 </Text>
-                {session ? (
+                {session && signupStep !== 2 ? (
                   <View style={{ paddingVertical: 8 }}>
                     <Text style={{ color: theme.text, fontSize: 14 }}>
                       ✓ Signed in as <Text style={{ fontWeight: '600' }}>{session.user.email}</Text>
